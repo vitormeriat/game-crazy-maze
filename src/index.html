@@ -1,0 +1,485 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Labirinto</title>
+
+    <!-- AppJogoLabirinto references -->
+    <link href="css/default.css" rel="stylesheet" />
+    <!-- <script src="js/default.js"></script> -->
+    <script src="js/GameOver.js"></script>
+    <script src="js/GameWins.js"></script>
+    <script src="js/Maps.js"></script>
+    <script src="js/graph.js"></script>
+    <script src="js/astar.js"></script>
+</head>
+
+<body>
+    <canvas id="tela" width="1440" height="1440" class="tudo">Sem suporte ao HTML5</canvas>
+    <script>
+        var canvas = document.getElementById("tela");
+        var ctx = canvas.getContext("2d");
+
+        //===============================================================================================================
+        var gameOver = new GameOver(ctx); // Exibe a tela em canvas com o resultado de derrota 
+        var gameWins = new GameWins(ctx); // Exibe a tela em canvas com o resultado de vitória
+        var maps = new Maps(ctx); // Exibe a tela em canvas com o resultado de vitória        
+        //===============================================================================================================
+
+        // Hero imagem        
+        var heroImage = new Image();
+        heroImage.src = "images/game_desing/hero.png";
+
+        var heroImageBack = new Image();
+        heroImageBack.src = "images/characters/hero-back.png";
+        var heroImageFront = new Image();
+        heroImageFront.src = "images/characters/hero-front.png";
+        var heroImageLeft = new Image();
+        heroImageLeft.src = "images/characters/hero-left.png";
+        var heroImageRight = new Image();
+        heroImageRight.src = "images/characters/hero-right.png";
+
+        // Porta              
+        var throneImage = new Image();
+        throneImage.src = "images/game_desing/throne.png";
+        // Bloco
+        var blocoImage = new Image();
+        blocoImage.src = "images/game_desing/bloco.png";
+        // Monstro
+        var monsterImage = new Image();
+        monsterImage.src = "images/game_desing/monster.png";
+        // Árvore
+        var treeImage = new Image();
+        treeImage.src = "images/game_desing/tree.png";
+        // Portal
+        var gatewayImage = new Image();
+        gatewayImage.src = "images/game_desing/gateway.png";
+        // Balão
+        var balaoImage = new Image();
+        balaoImage.src = "images/game_desing/fuja.png";
+
+
+        var stageQTX = 40; // Largura
+        var stageQTY = 40; // Altura
+        var stageW = 36; // Largura de um quadrante
+        var stageH = 36; // Altura de um quadrante
+
+        var direcao = 'D'; // Indica a direção que o personagem deve tomar. Usado para alterar o movimento do player
+
+
+        var monster = 5; // Representa o oponente
+        var cenario = 4; // Bloco invisível utilizado para compro o cenário e limitar a navegação dos personagens
+        var saida = 3;   // Representa a saída e objetivo [vitória] no jogo
+        var way = 1;     // Representa o caminho livre
+        var block = 0;   // Representa um bloco que não pode ser transpassado pelo player ou inimigos
+        var gateway = 2; // Representa o portal de teletransporte
+
+        //===============================================================================================================
+        // Define o grid e a fase.        
+        var stageLevel = maps.faseUm();
+        //===============================================================================================================
+
+        var blocks = new Array();
+
+        // Cria o objeto block para armazenar as propriedades do cenário
+        function Block() {
+            this.gridX = 0;
+            this.gridY = 0;
+            this.type = 0; // Tipo do bloco [Saída, monstro etc]
+            this.stage = 0;
+
+            //Variável privada
+            this._x = 0;
+            // Simula o get and set
+            this.x = function () {
+                // Caso tenha algum argumento...
+                if (arguments.length != 0) {
+                    // Então seta o argumento
+                    this._x = arguments[0];
+                } else { // Caso contrário retorna o argumento
+                    return this._x + stage.x;
+                }
+            }
+
+            this._y = 0;
+            this.y = function () {
+                if (arguments.length != 0) {
+                    this._y = arguments[0];
+                } else {
+                    return this._y + stage.y;
+                }
+            }
+        }
+
+        // Cria um objeto Stage
+        function Stage(x, y) {
+            this.x = x;
+            this.y = y;
+        }
+
+        // Cria um objeto Player
+        function Player(x, y) {
+            this.gridX = x;
+            this.gridY = y;
+        }
+
+        // Cria um objeto Monstro
+        function Monstro(x, y, retorno) {
+            this.x = x;
+            this.y = y;
+            this.retorno = retorno;
+        }
+        
+        // Inicia o Player na posição
+        var player = new Player(1, 1);
+        // Inicia o Stage
+        var stage = new Stage(0, 0);
+
+        // Verifica se a posição solicitada é grid(paredes do labirinto).         
+        function moveIsValid(gridX, gridY) {
+            // Limita a área do grid para o player não sair do tabuleiro.
+            if (gridX < 0 || gridX > stageLevel[0].length - 1 ||
+                gridY < 0 || gridY > stageLevel.length - 1) {
+                return true;
+            }
+            // Caso o type seja 4 (Cenário) desabilito o player a continuar o movimento.
+            if (stageLevel[gridY][gridX] == cenario) {
+                return true;
+            }
+            // Caso o type seja monstro habilito que o player possa continuar o movimento.
+            // Isso ocorre para que o player possa se chocar com o monstro o que vai ocasionar em derrota.
+            if (stageLevel[gridY][gridX] == monster) {
+                return false;
+            }
+            // Caso seja um gateway
+            if (stageLevel[gridY][gridX] == gateway) {
+                return false;
+            }
+
+            // Caso o type seja saída 
+            for (var i = 0; i < blocks.length ; i++) {
+                if (blocks[i].gridX == gridX && blocks[i].gridY ==
+                    gridY && blocks[i].type != saida) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // Verifica se a posição solicitada é a saída.
+        function isOut(gridX, gridY) {
+            for (var i = 0; i < blocks.length ; i++) {
+                if (blocks[i].gridX == gridX && blocks[i].gridY ==
+                    gridY && blocks[i].type == saida) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Verifica se a posição solicitada leva há um monstro.
+        function isMonster(gridX, gridY) {
+            for (var i = 0; i < blocks.length ; i++) {
+                if (blocks[i].gridX == gridX && blocks[i].gridY ==
+                    gridY && blocks[i].type == monster) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Verifica se a posição solicitada é um portal
+        function isGateway(gridX, gridY) {
+            for (var i = 0; i < blocks.length; i++) {
+                if (blocks[i].gridX == gridX && blocks[i].gridY ==
+                    gridY && blocks[i].type == gateway) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Verifica se o movimento que está sendo solicitado é um movimento válido
+        function tryMove(gridX, gridY) {
+            if (!moveIsValid(gridX, gridY)) {
+                // Atribui a posição ao player
+
+                //vX = playerX - Math.floor(0.5 * vWidth);
+                //if (vX < 0) vX = 0;
+                //if (vX + vWidth > worldWidth) vX = worldWidth - vWidth;
+
+                //vY = playerY - Math.floor(0.5 * vHeight);
+                //if (vY < 0) vY = 0;
+                //if (vY + vHeight > worldHeight) vY = worldHeight - vHeight;
+
+                // Desloca o stage 
+                if (gridX != player.gridX) {
+                    if (gridX > 10 && gridX < stageQTX - 10 - 17) {
+                        if (gridX < player.gridX) {
+                            stage.x += stageW;
+                        } else {
+                            stage.x -= stageW;
+                        }
+                    }
+                }
+                if (gridY != player.gridY) {
+                    if (gridY > 9 && gridY < stageQTY - 9 - 3) {
+                        if (gridY < player.gridY) {
+                            stage.y += stageH;
+                        } else {
+                            stage.y -= stageH;
+                        }
+                    }
+                }
+
+                player.gridX = parseInt(gridX);
+                player.gridY = parseInt(gridY);
+
+                // Atualiza o grid com a nova posição do player
+                atualizarGrid();
+
+                // Verifica se o herói está no raio de ação do monstro
+                var monstroPerto = monsterIsNear(gridX, gridY);
+                // Caso o herói esteja no raio de ação move o monstro em direção ao herói
+                if (monstroPerto.retorno) {
+                    moveMonster(monstroPerto);
+                }
+
+                // Caso o movimento seja a saída...
+                if (isOut(gridX, gridY)) {
+                    gameWins.desenharGameWins();
+                }
+                // Caso tenha topado com o monstro...
+                if (isMonster(gridX, gridY)) {
+                    gameOver.desenharGameOver();
+                }
+            }
+        }
+
+        // Verifica se o movimento solicitado está no raio de ação do monstro
+        function monsterIsNear(gridX, gridY) {
+            //[15][16][ 4][ 7][ 6]
+            //[14][ #][ #][ #][ 5]
+            //[ 2][ #][ X][ #][ 1]
+            //[13][ #][ #][ #][ 8]
+            //[12][11][ 3][10][ 9]
+
+            if (stageLevel[gridY][gridX] == 5) { // Verifica se é o monstro
+                var retorno = new Monstro(gridX, gridY, true);// É monstro
+                return retorno;
+            }
+            else if (stageLevel[gridY] != undefined && stageLevel[gridX + 2] != undefined && stageLevel[gridY][gridX + 2] == 5) {
+                var retorno = new Monstro(gridX + 2, gridY, true); // Verifica se o segundo quadrante da direita é monstro [1]
+                return retorno;
+            }
+            else if (stageLevel[gridY] != undefined && stageLevel[gridX - 2] != undefined && stageLevel[gridY][gridX - 2] == 5) {
+                var retorno = new Monstro(gridX - 2, gridY, true); // Verifica se o segundo quadrante da esquerda é monstro [2]
+                return retorno;
+            }
+            else if (stageLevel[gridY + 2] != undefined && stageLevel[gridX] != undefined && stageLevel[gridY + 2][gridX] == 5) {
+                var retorno = new Monstro(gridX, gridY + 2, true); // Verifica se o segundo quadrante para baixo é monstro [3]
+                return retorno;
+            }
+            else if (stageLevel[gridY - 2] != undefined && stageLevel[gridX] != undefined && stageLevel[gridY - 2][gridX] == 5) {
+                var retorno = new Monstro(gridX, gridY - 2, true); // Verifica se o segundo quadrante para cima é monstro [4]
+                return retorno;
+            }
+            else if (stageLevel[gridY - 1] != undefined && stageLevel[gridX + 2] != undefined && stageLevel[gridY - 1][gridX + 2] == 5) {
+                var retorno = new Monstro(gridX + 2, gridY - 1, true); // [5]
+                return retorno;
+            }
+            else if (stageLevel[gridY - 2] != undefined && stageLevel[gridX + 2] != undefined && stageLevel[gridY - 2][gridX + 2] == 5) {
+                var retorno = new Monstro(gridX + 2, gridY - 2, true); // [6]
+                return retorno;
+            }
+            else if (stageLevel[gridY - 2] != undefined && stageLevel[gridX + 1] != undefined && stageLevel[gridY - 2][gridX + 1] == 5) {
+                var retorno = new Monstro(gridX + 1, gridY - 2, true); // [7]
+                return retorno;
+            }
+            else if (stageLevel[gridY + 1] != undefined && stageLevel[gridX + 2] != undefined && stageLevel[gridY + 1][gridX + 2] == 5) {
+                var retorno = new Monstro(gridX + 2, gridY + 1, true); // [8]
+                return retorno;
+            }
+            else if (stageLevel[gridY + 2] != undefined && stageLevel[gridX + 2] != undefined && stageLevel[gridY + 2][gridX + 2] == 5) {
+                var retorno = new Monstro(gridX + 2, gridY + 2, true); // [9]
+                return retorno;
+            }
+            else if (stageLevel[gridY + 2] != undefined && stageLevel[gridX + 1] != undefined && stageLevel[gridY + 2][gridX + 1] == 5) {
+                var retorno = new Monstro(gridX + 2, gridY + 1, true); // [10]
+                return retorno;
+            }
+            else if (stageLevel[gridY + 2] != undefined && stageLevel[gridX - 1] != undefined && stageLevel[gridY + 2][gridX - 1] == 5) {
+                var retorno = new Monstro(gridX - 1, gridY + 2, true); // [11]
+                return retorno;
+            }
+            else if (stageLevel[gridY + 2] != undefined && stageLevel[gridX - 2] != undefined && stageLevel[gridY + 2][gridX - 2] == 5) {
+                var retorno = new Monstro(gridX - 2, gridY + 2, true); // [12]
+                return retorno;
+            }
+            else if (stageLevel[gridY + 1] != undefined && stageLevel[gridX - 2] != undefined && stageLevel[gridY + 1][gridX - 2] == 5) {
+                var retorno = new Monstro(gridX - 2, gridY + 1, true); // [13]
+                return retorno;
+            }
+            else if (stageLevel[gridY - 1] != undefined && stageLevel[gridX - 2] != undefined && stageLevel[gridY - 1][gridX - 2] == 5) {
+                var retorno = new Monstro(gridX - 2, gridY - 1, true); // [14]
+                return retorno;
+            }
+            else if (stageLevel[gridY - 2] != undefined && stageLevel[gridX - 2] != undefined && stageLevel[gridY - 2][gridX - 2] == 5) {
+                var retorno = new Monstro(gridX - 2, gridY - 2, true); // [15]
+                return retorno;
+            }
+            else if (stageLevel[gridY - 2] != undefined && stageLevel[gridX - 1] != undefined && stageLevel[gridY - 2][gridX - 1] == 5) {
+                var retorno = new Monstro(gridX - 1, gridY - 2, true); // [16]
+                return retorno;
+            }
+            else {
+                var retorno = new Monstro(0, 0, false); // [16]
+                return retorno;
+            }
+        }
+
+        // Movimenta o monstro em direção ao herói enquanto o mesmo estiver no raio de ação do monstro
+        function moveMonster(monstro) {
+            var cadeia = [];
+            for (var i in stageLevel) {
+                cadeia.push(stageLevel[i]);
+            }
+
+            var grid = new Graph(cadeia);
+            var inicio = grid.nodes[monstro.y][monstro.x];
+            // O objetivo sempre será o personagem
+            var fim = grid.nodes[player.gridY][player.gridX];
+            var resultado = astar.search(grid.nodes, inicio, fim);
+                        
+            desenharBalao(player.gridX, player.gridY);
+        }
+
+        // Monta o cenário do jogo.
+        // Percorre o array com as configurações do level
+        for (var a = 0; stageLevel.length > a; a++) {
+            for (var i = 0; stageLevel[a].length > i; i++) {
+                // Verifica os tipos com imagens
+                if (stageLevel[a][i] == block ||
+                    stageLevel[a][i] == saida ||
+                    stageLevel[a][i] == monster ||
+                    stageLevel[a][i] == cenario ||
+                    stageLevel[a][i] == gateway) {
+                    // Adiciona o mecanismo para geração randômica do labirinto.
+                    //if (stageLevel[a][i] == 3 || Math.random() > 0.5) {
+                    var temp = new Block();
+                    temp.gridX = i;
+                    temp.gridY = a;
+                    temp.type = stageLevel[a][i];
+                    temp.stage = stage;
+
+                    blocks.push(temp);
+                }
+            }
+        }
+
+        // Desenha os blocos
+        function drawGrid(gridX, gridY) {
+            ctx.drawImage(blocoImage, (gridX * stageW) + stage.x, (gridY * stageH) + stage.y);
+        }
+        // Desenha a saída do jogo
+        function drawSaida(gridX, gridY) {
+            ctx.drawImage(throneImage, (gridX * stageW) + stage.x, (gridY * stageH) + stage.y);
+        }
+        // Desenha o oponente
+        function drawMonster(gridX, gridY) {
+            ctx.drawImage(monsterImage, (gridX * stageW) + stage.x, (gridY * stageH) + stage.y);
+        }
+        // Desenha as árvores
+        function drawTree(gridX, gridY) {
+            ctx.drawImage(treeImage, (gridX * stageW) + stage.x, (gridY * stageH) + stage.y);
+        }
+        // Desenha os portais
+        function drawGateway(gridX, gridY) {
+            ctx.drawImage(gatewayImage, (gridX * stageW) + stage.x, (gridY * stageH) + stage.y);
+        }
+        // Desenha o herói
+        function drawPlayer(gridX, gridY) {
+            var image = null;
+            // Verifica qual a direção solicitada e seta a imagem do Herói correspondente
+            // Down = imagem frontal
+            // Up = imagem de costas
+            // Left = imagem do lado esquerdo
+            // Rigth = imagem do lado direito
+            if (direcao == 'D')
+                image = heroImageFront;
+            else if (direcao == 'U')
+                image = heroImageBack;
+            else if (direcao == 'L')
+                image = heroImageLeft;
+            else
+                image = heroImageRight;
+
+            ctx.drawImage(image, (gridX * stageW) + stage.x, (gridY * stageH) + stage.y);
+        }
+        // Desenha a fala para fujir do monstro
+        function desenharBalao(gridX, gridY) {
+            // Posiciona o balão em relação ao personagem
+            ctx.drawImage(balaoImage, gridX * stageW - 130, gridY * stageH - 25);
+        }
+
+        // Atualiza o Grid desenhando a cena
+        function atualizarGrid() {
+            //limpa todo o Canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Percorre o array e verifica o type do block
+            for (var a = 0; blocks.length > a; a++) {
+                // Caso seja saída...
+                if (blocks[a].type == saida) {
+                    drawSaida(blocks[a].gridX, blocks[a].gridY);
+                } // Caso seja um monstro...
+                else if (blocks[a].type == monster) {
+                    drawMonster(blocks[a].gridX, blocks[a].gridY);
+                } // Caso seja parte do cenário
+                else if (blocks[a].type == cenario) {
+                    drawTree(blocks[a].gridX, blocks[a].gridY);
+                }// Caso seja um portal
+                else if (blocks[a].type == gateway) {
+                    drawGateway(blocks[a].gridX, blocks[a].gridY);
+                }// senão desenha os blocos 
+                else {
+                    drawGrid(blocks[a].gridX, blocks[a].gridY);
+                }
+            }
+
+            drawPlayer(player.gridX, player.gridY);
+        }
+
+        window.onkeydown = pressionaTecla;
+        function pressionaTecla(e) {
+            playerX = parseInt(player.gridX);
+            playerY = parseInt(player.gridY);
+
+            //http://www.cambiaresearch.com/articles/15/javascript-char-codes-key-codes
+            if (e.keyCode == 37) {
+                direcao = 'L'; // indica a direção do player
+                tryMove(playerX - 1, playerY); //move para esquerda    
+            }
+            else if (e.keyCode == 39) {
+                direcao = 'R';
+                tryMove(playerX + 1, playerY); //move para direita     
+            }
+            else if (e.keyCode == 38) {
+                direcao = 'U';
+                tryMove(playerX, playerY - 1); //move para cima
+            }
+            else if (e.keyCode == 40) {
+                direcao = 'D';
+                tryMove(playerX, playerY + 1); //move para baixo
+            }
+            //else if (e.keyCode == 8) {
+            //    tryMove(playerX, playerY + 1); //backspace
+            //} 
+        }
+
+        atualizarGrid();
+
+    </script>
+</body>
+</html>

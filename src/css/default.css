@@ -1,0 +1,31 @@
+﻿body {
+}
+
+@media screen and (-ms-view-state: fullscreen-landscape) {
+}
+
+@media screen and (-ms-view-state: filled) {
+}
+
+@media screen and (-ms-view-state: snapped) {
+}
+
+@media screen and (-ms-view-state: fullscreen-portrait) {
+}
+
+* {
+    margin: 0;
+    padding: 0;
+}
+
+.tudo {
+    /*border-style: solid;
+    border-width: 10px;*/
+    background-color: #008B00;
+    background-image: url(../images/game_desing/background.png);
+    /*
+    left: 50%;
+    margin: -270px 0 0 -450px;
+    position: absolute;
+    top: 50%;*/
+}
